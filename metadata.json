@@ -1,0 +1,6 @@
+{
+  "name": "Controle Financeiro 2026",
+  "description": "Aplicativo de gestão financeira pessoal e empresarial completo integrado ao Google Sheets, com controle de receitas, despesas, orçamento mensal, fluxo de caixa e relatórios analíticos.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
