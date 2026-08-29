@@ -62,18 +62,20 @@ class FinanceLogicTest {
         val savingsRate = if (totalIncome > 0) Math.max(0, Math.min(100, Math.round(((totalIncome - totalExpense) / totalIncome) * 100).toInt())) else 0
 
         val summary = MonthSummary(
+            month = "Março",
             totalIncome = totalIncome,
             totalExpense = totalExpense,
             balance = balance,
             savingsRate = savingsRate,
-            pendingExpense = pendingExpense
+            pendingExpenses = pendingExpense,
+            pendingIncomes = 0.0
         )
 
         assertEquals(10000.0, summary.totalIncome, 0.001)
         assertEquals(4500.0, summary.totalExpense, 0.001)
         assertEquals(5500.0, summary.balance, 0.001)
         assertEquals(55, summary.savingsRate)
-        assertEquals(500.0, summary.pendingExpense, 0.001)
+        assertEquals(500.0, summary.pendingExpenses, 0.001)
     }
 
     @Test

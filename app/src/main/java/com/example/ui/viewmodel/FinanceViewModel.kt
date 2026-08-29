@@ -85,17 +85,31 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         transactions.filter { it.date.startsWith(prefix) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val filteredTransactions: StateFlow<List<TransactionEntity>> = combine(
-        monthTransactions, _searchQuery, _filterType, _filterCategory, _filterAccount, _filterStatus
-    ) { list, query, type, cat, acc, status ->
-        list.filter { tx ->
-            val matchQuery = query.isEmpty() ||
-                    tx.description.contains(query, ignoreCase = true) ||
-                    tx.category.contains(query, ignoreCase = true) ||
-                    tx.account.contains(query, ignoreCase = true) ||
-                    (tx.notes?.contains(query, ignoreCase = true) == true)
+    private data class TxFilters(
+        val query: String,
+        val type: String,
+        val category: String?,
+        val account: String?,
+        val status: String?
+    )
 
-            val matchType = when (type) {
+    private val filtersFlow = combine(
+        _searchQuery, _filterType, _filterCategory, _filterAccount, _filterStatus
+    ) { query, type, cat, acc, status ->
+        TxFilters(query, type, cat, acc, status)
+    }
+
+    val filteredTransactions: StateFlow<List<TransactionEntity>> = combine(
+        monthTransactions, filtersFlow
+    ) { list, filters ->
+        list.filter { tx ->
+            val matchQuery = filters.query.isEmpty() ||
+                    tx.description.contains(filters.query, ignoreCase = true) ||
+                    tx.category.contains(filters.query, ignoreCase = true) ||
+                    tx.account.contains(filters.query, ignoreCase = true) ||
+                    (tx.notes?.contains(filters.query, ignoreCase = true) == true)
+
+            val matchType = when (filters.type) {
                 "all" -> true
                 "expense" -> tx.type == "expense"
                 "income" -> tx.type == "income"
@@ -105,9 +119,9 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                 else -> true
             }
 
-            val matchCat = cat == null || tx.category == cat
-            val matchAcc = acc == null || tx.account == acc
-            val matchStatus = status == null || tx.status == status
+            val matchCat = filters.category == null || tx.category == filters.category
+            val matchAcc = filters.account == null || tx.account == filters.account
+            val matchStatus = filters.status == null || tx.status == filters.status
 
             matchQuery && matchType && matchCat && matchAcc && matchStatus
         }
