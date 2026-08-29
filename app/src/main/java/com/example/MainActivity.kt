@@ -45,7 +45,8 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
 
         setContent {
-            ControleFinanceiroTheme {
+            val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+            ControleFinanceiroTheme(themeMode = themeMode) {
                 MainApp(viewModel = viewModel)
             }
         }
@@ -57,6 +58,7 @@ fun MainApp(viewModel: FinanceViewModel) {
     val context = LocalContext.current
     var currentTab by remember { mutableStateOf(NavigationTab.DASHBOARD) }
 
+    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
     val selectedMonth by viewModel.selectedMonth.collectAsStateWithLifecycle()
     val selectedYear by viewModel.selectedYear.collectAsStateWithLifecycle()
     val isGoogleConnected by viewModel.isGoogleConnected.collectAsStateWithLifecycle()
@@ -70,11 +72,13 @@ fun MainApp(viewModel: FinanceViewModel) {
     val creditCards by viewModel.allCreditCards.collectAsStateWithLifecycle()
     val goals by viewModel.allGoals.collectAsStateWithLifecycle()
     val monthSummary by viewModel.monthSummary.collectAsStateWithLifecycle()
+    val cumulativeSummary by viewModel.cumulativeBalanceSummary.collectAsStateWithLifecycle()
 
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val filterType by viewModel.filterType.collectAsStateWithLifecycle()
     val filterCategory by viewModel.filterCategory.collectAsStateWithLifecycle()
     val filterAccount by viewModel.filterAccount.collectAsStateWithLifecycle()
+    val sortOption by viewModel.sortOption.collectAsStateWithLifecycle()
 
     var showTransactionDialog by remember { mutableStateOf(false) }
     var transactionToEdit by remember { mutableStateOf<TransactionEntity?>(null) }
@@ -86,6 +90,8 @@ fun MainApp(viewModel: FinanceViewModel) {
                 selectedMonth = selectedMonth,
                 selectedYear = selectedYear,
                 isGoogleConnected = isGoogleConnected,
+                currentThemeMode = themeMode,
+                onThemeModeChange = { viewModel.setThemeMode(it) },
                 onPrevMonth = { viewModel.prevMonth() },
                 onNextMonth = { viewModel.nextMonth() },
                 onMonthYearSelected = { m, y -> viewModel.setMonthAndYear(m, y) },
@@ -143,6 +149,7 @@ fun MainApp(viewModel: FinanceViewModel) {
                         selectedMonth = selectedMonth,
                         selectedYear = selectedYear,
                         monthSummary = monthSummary,
+                        cumulativeSummary = cumulativeSummary,
                         transactions = monthTransactions,
                         categories = categories,
                         accounts = accounts,
@@ -174,10 +181,12 @@ fun MainApp(viewModel: FinanceViewModel) {
                         filterType = filterType,
                         filterCategory = filterCategory,
                         filterAccount = filterAccount,
+                        sortOption = sortOption,
                         onSearchChange = { viewModel.setSearchQuery(it) },
                         onFilterTypeChange = { viewModel.setFilterType(it) },
                         onFilterCategoryChange = { viewModel.setFilterCategory(it) },
                         onFilterAccountChange = { viewModel.setFilterAccount(it) },
+                        onSortOptionChange = { viewModel.setSortOption(it) },
                         onOpenNewTransaction = {
                             transactionToEdit = null
                             showTransactionDialog = true

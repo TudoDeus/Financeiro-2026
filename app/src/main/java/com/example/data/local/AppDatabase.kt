@@ -18,7 +18,7 @@ import kotlinx.coroutines.launch
         CreditCardEntity::class,
         GoalEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -55,6 +55,26 @@ abstract class AppDatabase : RoomDatabase() {
                 INSTANCE?.let { database ->
                     scope.launch(Dispatchers.IO) {
                         populateDatabase(database)
+                    }
+                }
+            }
+
+            override fun onOpen(db: SupportSQLiteDatabase) {
+                super.onOpen(db)
+                INSTANCE?.let { database ->
+                    scope.launch(Dispatchers.IO) {
+                        // Ensure requested categories exist
+                        db.execSQL("INSERT OR IGNORE INTO categories (id, name, type, icon, color, monthlyBudget) VALUES ('cat-casa', 'Casa', 'expense', 'Home', '#3B82F6', 2200.0)")
+                        db.execSQL("INSERT OR IGNORE INTO categories (id, name, type, icon, color, monthlyBudget) VALUES ('cat-assinaturas', 'Assinaturas', 'expense', 'FileText', '#8B5CF6', 350.0)")
+                        db.execSQL("INSERT OR IGNORE INTO categories (id, name, type, icon, color, monthlyBudget) VALUES ('cat-carro', 'Carro', 'expense', 'DirectionsCar', '#F59E0B', 700.0)")
+                        db.execSQL("INSERT OR IGNORE INTO categories (id, name, type, icon, color, monthlyBudget) VALUES ('cat-alimentacao-mercado', 'Alimentação/Mercado', 'expense', 'ShoppingCart', '#10B981', 1600.0)")
+                        db.execSQL("INSERT OR IGNORE INTO categories (id, name, type, icon, color, monthlyBudget) VALUES ('cat-academia', 'Academia', 'expense', 'FitnessCenter', '#EC4899', 180.0)")
+                        db.execSQL("INSERT OR IGNORE INTO categories (id, name, type, icon, color, monthlyBudget) VALUES ('cat-terreno', 'Terreno', 'expense', 'Landscape', '#14B8A6', 1200.0)")
+                        db.execSQL("INSERT OR IGNORE INTO categories (id, name, type, icon, color, monthlyBudget) VALUES ('cat-lazer', 'Lazer', 'expense', 'Sparkles', '#F43F5E', 600.0)")
+                        db.execSQL("INSERT OR IGNORE INTO categories (id, name, type, icon, color, monthlyBudget) VALUES ('cat-salario', 'Salário', 'income', 'AccountBalanceWallet', '#10B981', 7500.0)")
+                        db.execSQL("INSERT OR IGNORE INTO categories (id, name, type, icon, color, monthlyBudget) VALUES ('cat-rec-terreno', 'Terreno', 'income', 'Landscape', '#14B8A6', 2500.0)")
+                        db.execSQL("INSERT OR IGNORE INTO categories (id, name, type, icon, color, monthlyBudget) VALUES ('cat-rendimentos', 'Rendimentos', 'income', 'TrendingUp', '#8B5CF6', 500.0)")
+                        db.execSQL("INSERT OR IGNORE INTO categories (id, name, type, icon, color, monthlyBudget) VALUES ('cat-outras-rec', 'Outras Receitas', 'income', 'AddCircle', '#64748B', 300.0)")
                     }
                 }
             }

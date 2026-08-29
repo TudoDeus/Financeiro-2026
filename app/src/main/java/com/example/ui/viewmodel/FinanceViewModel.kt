@@ -1,12 +1,14 @@
 package com.example.ui.viewmodel
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.AppDatabase
 import com.example.data.local.InitialData
 import com.example.data.model.*
 import com.example.data.repository.FinanceRepository
+import com.example.ui.theme.AppThemeMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
@@ -14,8 +16,29 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.*
 
+enum class TxSortOption(val label: String) {
+    DATE_DESC("Mais recentes"),
+    DATE_ASC("Mais antigos"),
+    AMOUNT_DESC("Maior valor"),
+    AMOUNT_ASC("Menor valor"),
+    NAME_ASC("Alfabético (A-Z)")
+}
+
+data class CumulativeBalanceSummary(
+    val currentMonthName: String,
+    val currentMonthBalance: Double,
+    val prevMonthName: String,
+    val prevMonthBalance: Double,
+    val totalCumulativeBalance: Double,
+    val currentIncome: Double,
+    val currentExpense: Double,
+    val prevIncome: Double,
+    val prevExpense: Double
+)
+
 class FinanceViewModel(application: Application) : AndroidViewModel(application) {
 
+    private val prefs = application.getSharedPreferences("finance_app_prefs", Context.MODE_PRIVATE)
     private val repository: FinanceRepository
 
     val allTransactions: StateFlow<List<TransactionEntity>>
@@ -24,11 +47,30 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
     val allCreditCards: StateFlow<List<CreditCardEntity>>
     val allGoals: StateFlow<List<GoalEntity>>
 
-    private val _selectedMonth = MutableStateFlow(8) // 1 - 12 (Agosto = 8)
+    // Persistent Month & Year
+    private val _selectedMonth = MutableStateFlow(prefs.getInt("saved_month", 8))
     val selectedMonth: StateFlow<Int> = _selectedMonth.asStateFlow()
 
-    private val _selectedYear = MutableStateFlow(2026)
+    private val _selectedYear = MutableStateFlow(prefs.getInt("saved_year", 2026))
     val selectedYear: StateFlow<Int> = _selectedYear.asStateFlow()
+
+    // Persistent Theme Mode
+    private val savedThemeName = prefs.getString("saved_theme_mode", AppThemeMode.CLASSIC.name) ?: AppThemeMode.CLASSIC.name
+    private val initialTheme = try {
+        AppThemeMode.valueOf(savedThemeName)
+    } catch (e: Exception) {
+        AppThemeMode.CLASSIC
+    }
+    private val _themeMode = MutableStateFlow(initialTheme)
+    val themeMode: StateFlow<AppThemeMode> = _themeMode.asStateFlow()
+
+    // Cumulative Balance Toggle
+    private val _showCumulativeBalance = MutableStateFlow(false)
+    val showCumulativeBalance: StateFlow<Boolean> = _showCumulativeBalance.asStateFlow()
+
+    // Sort Option
+    private val _sortOption = MutableStateFlow(TxSortOption.DATE_DESC)
+    val sortOption: StateFlow<TxSortOption> = _sortOption.asStateFlow()
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
@@ -44,6 +86,10 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
 
     private val _filterStatus = MutableStateFlow<String?>(null) // all, completed, pending
     val filterStatus: StateFlow<String?> = _filterStatus.asStateFlow()
+
+    // Active Category Inspection Modal (e.g. clicking Terreno shows expenses & respective incomes)
+    private val _inspectedCategory = MutableStateFlow<String?>(null)
+    val inspectedCategory: StateFlow<String?> = _inspectedCategory.asStateFlow()
 
     private val _googleSheetId = MutableStateFlow("1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms")
     val googleSheetId: StateFlow<String> = _googleSheetId.asStateFlow()
@@ -79,30 +125,84 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         String.format(Locale.US, "%04d-%02d", year, month)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "2026-08")
 
+    val prevMonthPrefix: StateFlow<String> = combine(_selectedYear, _selectedMonth) { year, month ->
+        val prevYear = if (month == 1) year - 1 else year
+        val prevMonth = if (month == 1) 12 else month - 1
+        String.format(Locale.US, "%04d-%02d", prevYear, prevMonth)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), "2026-07")
+
     val monthTransactions: StateFlow<List<TransactionEntity>> = combine(
         allTransactions, currentMonthPrefix
     ) { transactions, prefix ->
         transactions.filter { it.date.startsWith(prefix) }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val prevMonthTransactions: StateFlow<List<TransactionEntity>> = combine(
+        allTransactions, prevMonthPrefix
+    ) { transactions, prefix ->
+        transactions.filter { it.date.startsWith(prefix) }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Cumulative Balance Data (Current Month + Previous Month)
+    val cumulativeBalanceSummary: StateFlow<CumulativeBalanceSummary> = combine(
+        monthTransactions, prevMonthTransactions, _selectedMonth, _selectedYear
+    ) { currTxs, prevTxs, month, year ->
+        val currIncome = currTxs.filter { it.type == "income" }.sumOf { it.amount }
+        val currExpense = currTxs.filter { it.type == "expense" }.sumOf { it.amount }
+        val currBal = currIncome - currExpense
+
+        val prevIncome = prevTxs.filter { it.type == "income" }.sumOf { it.amount }
+        val prevExpense = prevTxs.filter { it.type == "expense" }.sumOf { it.amount }
+        val prevBal = prevIncome - prevExpense
+
+        val prevMonthNum = if (month == 1) 12 else month - 1
+        val currName = InitialData.MONTH_NAMES.getOrElse(month - 1) { "Mês $month" }
+        val prevName = InitialData.MONTH_NAMES.getOrElse(prevMonthNum - 1) { "Mês $prevMonthNum" }
+
+        CumulativeBalanceSummary(
+            currentMonthName = currName,
+            currentMonthBalance = currBal,
+            prevMonthName = prevName,
+            prevMonthBalance = prevBal,
+            totalCumulativeBalance = currBal + prevBal,
+            currentIncome = currIncome,
+            currentExpense = currExpense,
+            prevIncome = prevIncome,
+            prevExpense = prevExpense
+        )
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.WhileSubscribed(5000),
+        CumulativeBalanceSummary("Agosto", 0.0, "Julho", 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+    )
+
     private data class TxFilters(
         val query: String,
         val type: String,
         val category: String?,
         val account: String?,
-        val status: String?
+        val status: String?,
+        val sort: TxSortOption
     )
 
+    private data class FilterCriteria(val query: String, val type: String, val cat: String?, val acc: String?)
+
+    private val filterCriteriaFlow = combine(
+        _searchQuery, _filterType, _filterCategory, _filterAccount
+    ) { query, type, cat, acc ->
+        FilterCriteria(query, type, cat, acc)
+    }
+
     private val filtersFlow = combine(
-        _searchQuery, _filterType, _filterCategory, _filterAccount, _filterStatus
-    ) { query, type, cat, acc, status ->
-        TxFilters(query, type, cat, acc, status)
+        filterCriteriaFlow, _filterStatus, _sortOption
+    ) { crit, status, sort ->
+        TxFilters(crit.query, crit.type, crit.cat, crit.acc, status, sort)
     }
 
     val filteredTransactions: StateFlow<List<TransactionEntity>> = combine(
         monthTransactions, filtersFlow
     ) { list, filters ->
-        list.filter { tx ->
+        val filtered = list.filter { tx ->
             val matchQuery = filters.query.isEmpty() ||
                     tx.description.contains(filters.query, ignoreCase = true) ||
                     tx.category.contains(filters.query, ignoreCase = true) ||
@@ -125,9 +225,17 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
 
             matchQuery && matchType && matchCat && matchAcc && matchStatus
         }
+
+        when (filters.sort) {
+            TxSortOption.DATE_DESC -> filtered.sortedByDescending { it.date }
+            TxSortOption.DATE_ASC -> filtered.sortedBy { it.date }
+            TxSortOption.AMOUNT_DESC -> filtered.sortedByDescending { it.amount }
+            TxSortOption.AMOUNT_ASC -> filtered.sortedBy { it.amount }
+            TxSortOption.NAME_ASC -> filtered.sortedBy { it.description.lowercase() }
+        }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val monthSummary: StateFlow<MonthSummary> = monthTransactions.map { list ->
+    val monthSummary: StateFlow<MonthSummary> = combine(monthTransactions, _selectedMonth) { list, month ->
         val income = list.filter { it.type == "income" }.sumOf { it.amount }
         val expense = list.filter { it.type == "expense" }.sumOf { it.amount }
         val bal = income - expense
@@ -135,8 +243,10 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         val pendingExp = list.filter { it.type == "expense" && it.status == "pending" }.sumOf { it.amount }
         val pendingInc = list.filter { it.type == "income" && it.status == "pending" }.sumOf { it.amount }
 
+        val monthName = InitialData.MONTH_NAMES.getOrElse(month - 1) { "Mês $month" }
+
         MonthSummary(
-            month = "Agosto",
+            month = monthName,
             totalIncome = income,
             totalExpense = expense,
             balance = bal,
@@ -150,6 +260,30 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         MonthSummary("Agosto", 0.0, 0.0, 0.0, 0, 0.0, 0.0)
     )
 
+    fun setThemeMode(mode: AppThemeMode) {
+        _themeMode.value = mode
+        prefs.edit().putString("saved_theme_mode", mode.name).apply()
+    }
+
+    fun toggleCumulativeBalance() {
+        _showCumulativeBalance.value = !_showCumulativeBalance.value
+    }
+
+    fun setSortOption(option: TxSortOption) {
+        _sortOption.value = option
+    }
+
+    fun setInspectedCategory(categoryName: String?) {
+        _inspectedCategory.value = categoryName
+    }
+
+    private fun persistSelectedDate(month: Int, year: Int) {
+        prefs.edit()
+            .putInt("saved_month", month)
+            .putInt("saved_year", year)
+            .apply()
+    }
+
     fun nextMonth() {
         if (_selectedMonth.value == 12) {
             _selectedMonth.value = 1
@@ -157,6 +291,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         } else {
             _selectedMonth.value += 1
         }
+        persistSelectedDate(_selectedMonth.value, _selectedYear.value)
     }
 
     fun prevMonth() {
@@ -166,11 +301,13 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         } else {
             _selectedMonth.value -= 1
         }
+        persistSelectedDate(_selectedMonth.value, _selectedYear.value)
     }
 
     fun setMonthAndYear(month: Int, year: Int) {
         _selectedMonth.value = month
         _selectedYear.value = year
+        persistSelectedDate(month, year)
     }
 
     fun setSearchQuery(q: String) {
@@ -211,10 +348,17 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    // Transactions CRUD
+    // Transactions CRUD - Safe save & update without duplication
     fun saveSingleTransaction(transaction: TransactionEntity) {
         viewModelScope.launch(Dispatchers.IO) {
             repository.insertTransaction(transaction)
+            recalculateCardInvoices()
+        }
+    }
+
+    fun updateTransaction(transaction: TransactionEntity) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.updateTransaction(transaction)
             recalculateCardInvoices()
         }
     }
@@ -459,13 +603,11 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
 
     fun payCreditCardInvoice(card: CreditCardEntity, fromAccountName: String, amount: Double) {
         viewModelScope.launch(Dispatchers.IO) {
-            // Deduct from account
             val currentAccounts = allAccounts.value
             val targetAcc = currentAccounts.find { it.name == fromAccountName }
             if (targetAcc != null) {
                 repository.updateAccountBalance(targetAcc.id, targetAcc.balance - amount)
             }
-            // Add a payment transaction
             val today = LocalDate.now().format(DateTimeFormatter.ISO_DATE)
             val paymentTx = TransactionEntity(
                 id = UUID.randomUUID().toString(),
@@ -473,7 +615,7 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
                 description = "Pagamento Fatura ${card.name}",
                 amount = amount,
                 type = "expense",
-                category = "Contas & Assinaturas",
+                category = "Assinaturas",
                 account = fromAccountName,
                 status = "completed",
                 notes = "Liquidação de fatura do cartão",
@@ -519,3 +661,4 @@ class FinanceViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 }
+

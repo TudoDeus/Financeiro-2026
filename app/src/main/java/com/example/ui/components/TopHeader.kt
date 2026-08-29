@@ -28,6 +28,8 @@ fun TopHeader(
     selectedMonth: Int,
     selectedYear: Int,
     isGoogleConnected: Boolean,
+    currentThemeMode: AppThemeMode,
+    onThemeModeChange: (AppThemeMode) -> Unit,
     onPrevMonth: () -> Unit,
     onNextMonth: () -> Unit,
     onMonthYearSelected: (Int, Int) -> Unit,
@@ -35,6 +37,7 @@ fun TopHeader(
     onOpenNewTransaction: () -> Unit
 ) {
     var showMonthPicker by remember { mutableStateOf(false) }
+    var showThemeMenu by remember { mutableStateOf(false) }
 
     Surface(
         color = MaterialTheme.colorScheme.surface,
@@ -45,10 +48,10 @@ fun TopHeader(
             modifier = Modifier
                 .fillMaxWidth()
                 .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Row 1: App Title, Google Sheets Sync Button, Quick Add Button
+            // Row 1: App Title, Theme Switcher, Google Sheets Sync Button, Quick Add Button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -96,13 +99,80 @@ fun TopHeader(
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    // Theme Switcher Button
+                    Box {
+                        IconButton(
+                            onClick = { showThemeMenu = true },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .testTag("theme_switcher_button")
+                        ) {
+                            Icon(
+                                imageVector = when (currentThemeMode) {
+                                    AppThemeMode.SEPIA -> Icons.Default.AutoStories
+                                    AppThemeMode.DARK -> Icons.Default.DarkMode
+                                    AppThemeMode.CLASSIC -> Icons.Default.LightMode
+                                },
+                                contentDescription = "Trocar Tema",
+                                tint = when (currentThemeMode) {
+                                    AppThemeMode.SEPIA -> Color(0xFFB45309)
+                                    AppThemeMode.DARK -> Color(0xFF60A5FA)
+                                    AppThemeMode.CLASSIC -> Emerald600
+                                },
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = showThemeMenu,
+                            onDismissRequest = { showThemeMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Icon(Icons.Default.LightMode, contentDescription = null, tint = Emerald600, modifier = Modifier.size(16.dp))
+                                        Text("Clássico (Claro)", fontWeight = if (currentThemeMode == AppThemeMode.CLASSIC) FontWeight.Bold else FontWeight.Normal)
+                                    }
+                                },
+                                onClick = {
+                                    onThemeModeChange(AppThemeMode.CLASSIC)
+                                    showThemeMenu = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Icon(Icons.Default.AutoStories, contentDescription = null, tint = Color(0xFFB45309), modifier = Modifier.size(16.dp))
+                                        Text("Sépia (Vintage)", fontWeight = if (currentThemeMode == AppThemeMode.SEPIA) FontWeight.Bold else FontWeight.Normal)
+                                    }
+                                },
+                                onClick = {
+                                    onThemeModeChange(AppThemeMode.SEPIA)
+                                    showThemeMenu = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Icon(Icons.Default.DarkMode, contentDescription = null, tint = Color(0xFF60A5FA), modifier = Modifier.size(16.dp))
+                                        Text("Dark (Escuro)", fontWeight = if (currentThemeMode == AppThemeMode.DARK) FontWeight.Bold else FontWeight.Normal)
+                                    }
+                                },
+                                onClick = {
+                                    onThemeModeChange(AppThemeMode.DARK)
+                                    showThemeMenu = false
+                                }
+                            )
+                        }
+                    }
+
                     // Google Sheets Sync Status Chip
                     FilledTonalButton(
                         onClick = onOpenGoogleSync,
                         shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                         colors = ButtonDefaults.filledTonalButtonColors(
                             containerColor = if (isGoogleConnected) Emerald50 else Slate100,
                             contentColor = if (isGoogleConnected) Emerald700 else Slate600
@@ -112,11 +182,11 @@ fun TopHeader(
                         Icon(
                             imageVector = if (isGoogleConnected) Icons.Default.CloudDone else Icons.Default.CloudOff,
                             contentDescription = "Sync Sheets",
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(15.dp)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Spacer(modifier = Modifier.width(3.dp))
                         Text(
-                            text = if (isGoogleConnected) "Planilha OK" else "Conectar",
+                            text = if (isGoogleConnected) "Planilha" else "Conectar",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold
                         )
@@ -126,7 +196,7 @@ fun TopHeader(
                     Button(
                         onClick = onOpenNewTransaction,
                         shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = Emerald600,
                             contentColor = Color.White
@@ -136,12 +206,12 @@ fun TopHeader(
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = "Novo",
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(15.dp)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
+                        Spacer(modifier = Modifier.width(3.dp))
                         Text(
                             text = "Novo",
-                            fontSize = 12.sp,
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }

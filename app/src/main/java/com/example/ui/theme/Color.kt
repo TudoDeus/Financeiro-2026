@@ -24,6 +24,7 @@ val Indigo700 = Color(0xFF4338CA)
 
 val Amber500 = Color(0xFFF59E0B)
 val Amber600 = Color(0xFFD97706)
+val Amber700 = Color(0xFFB45309)
 
 val Slate50 = Color(0xFFF8FAFC)
 val Slate100 = Color(0xFFF1F5F9)
@@ -36,3 +37,18 @@ val Slate700 = Color(0xFF334155)
 val Slate800 = Color(0xFF1E293B)
 val Slate900 = Color(0xFF0F172A)
 val Slate950 = Color(0xFF020617)
+
+// Sepia Warm Palette
+val SepiaBackground = Color(0xFFF9F6F0)
+val SepiaSurface = Color(0xFFFFFDF9)
+val SepiaSurfaceVariant = Color(0xFFEFE9DF)
+val SepiaPrimary = Color(0xFF92400E) // Warm Amber Brown
+val SepiaPrimaryContainer = Color(0xFFFDE68A)
+val SepiaOnPrimaryContainer = Color(0xFF451A03)
+val SepiaSecondary = Color(0xFF78350F)
+val SepiaSecondaryContainer = Color(0xFFE7DFD5)
+val SepiaTertiary = Color(0xFFB45309)
+val SepiaOutline = Color(0xFFD6C7B2)
+val SepiaOnBackground = Color(0xFF292524)
+val SepiaOnSurface = Color(0xFF292524)
+val SepiaOnSurfaceVariant = Color(0xFF57534E)

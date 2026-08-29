@@ -26,10 +26,16 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.data.model.*
 import com.example.ui.theme.*
+import com.example.ui.util.toCurrency
+import com.example.ui.util.toFormattedDate
+import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
+import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.*
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TransactionDialog(
     isOpen: Boolean,
@@ -67,11 +73,12 @@ fun TransactionDialog(
 ) {
     if (!isOpen) return
 
+    val isEditing = initialTransaction != null
+
     var type by remember(initialTransaction) { mutableStateOf(initialTransaction?.type ?: "expense") }
     var launchMode by remember(initialTransaction) {
         mutableStateOf(
-            if (initialTransaction?.isInstallment == true) "installment"
-            else if (initialTransaction?.isRecurring == true) "recurring"
+            if (isEditing) "single"
             else "single"
         )
     }
@@ -87,7 +94,7 @@ fun TransactionDialog(
     val filteredCategories = categories.filter { it.type == (if (type == "income") "income" else "expense") }
     var category by remember(initialTransaction, type) {
         mutableStateOf(
-            initialTransaction?.category ?: filteredCategories.firstOrNull()?.name ?: "Geral"
+            initialTransaction?.category ?: filteredCategories.firstOrNull()?.name ?: "Casa"
         )
     }
 
@@ -102,21 +109,64 @@ fun TransactionDialog(
     var status by remember(initialTransaction) { mutableStateOf(initialTransaction?.status ?: "completed") }
     var notes by remember(initialTransaction) { mutableStateOf(initialTransaction?.notes ?: "") }
 
-    // Installment options
+    // Installment options with String inputs to allow smooth editing & backspace
     var installmentMode by remember { mutableStateOf("per_installment") } // "per_installment" or "total"
-    var totalInstallments by remember(initialTransaction) { mutableStateOf(initialTransaction?.installmentTotal ?: 10) }
-    var startInstallment by remember(initialTransaction) { mutableStateOf(initialTransaction?.installmentCurrent ?: 1) }
+    var totalInstallmentsText by remember(initialTransaction) {
+        mutableStateOf(initialTransaction?.installmentTotal?.toString() ?: "10")
+    }
+    var startInstallmentText by remember(initialTransaction) {
+        mutableStateOf(initialTransaction?.installmentCurrent?.toString() ?: "1")
+    }
 
     // Recurring options
-    var recurrenceScope by remember { mutableStateOf("end_of_year") } // "end_of_year", "full_year", "custom"
+    var recurrenceScope by remember { mutableStateOf("end_of_year") }
     var customMonths by remember { mutableStateOf(12) }
 
     var errorMsg by remember { mutableStateOf<String?>(null) }
+    var showDatePicker by remember { mutableStateOf(false) }
+
+    val totalInstallments = totalInstallmentsText.toIntOrNull() ?: 2
+    val startInstallment = startInstallmentText.toIntOrNull() ?: 1
 
     val parsedAmount = amountText.replace(",", ".").toDoubleOrNull() ?: 0.0
     val perInstallment = if (installmentMode == "per_installment") parsedAmount else (if (totalInstallments > 0) parsedAmount / totalInstallments else 0.0)
     val totalAmountCalc = if (installmentMode == "per_installment") parsedAmount * totalInstallments else parsedAmount
     val remainingInstallments = Math.max(1, totalInstallments - startInstallment + 1)
+
+    if (showDatePicker) {
+        val initialEpochMillis = remember(date) {
+            try {
+                LocalDate.parse(date).atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+            } catch (e: Exception) {
+                System.currentTimeMillis()
+            }
+        }
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initialEpochMillis)
+
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        datePickerState.selectedDateMillis?.let { millis ->
+                            val selectedLocalDate = Instant.ofEpochMilli(millis).atZone(ZoneOffset.UTC).toLocalDate()
+                            date = selectedLocalDate.format(DateTimeFormatter.ISO_DATE)
+                        }
+                        showDatePicker = false
+                    }
+                ) {
+                    Text("Confirmar", fontWeight = FontWeight.Bold, color = Emerald600)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) {
+                    Text("Cancelar")
+                }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -143,12 +193,13 @@ fun TransactionDialog(
                 ) {
                     Column {
                         Text(
-                            text = if (initialTransaction != null) "Editar Lançamento" else "Novo Lançamento",
+                            text = if (isEditing) "Editar Lançamento" else "Novo Lançamento",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onSurface
                         )
                         Text(
-                            text = if (launchMode == "installment") "Parcelamento automático mês a mês"
+                            text = if (isEditing) "Altere os dados deste lançamento"
+                            else if (launchMode == "installment") "Parcelamento automático mês a mês"
                             else if (launchMode == "recurring") "Lançamento fixo e recorrente"
                             else "Lançamento à vista pontual",
                             fontSize = 11.sp,
@@ -198,10 +249,11 @@ fun TransactionDialog(
                                 .weight(1f)
                                 .clickable {
                                     type = t
-                                    val cat = categories.firstOrNull { it.type == (if (t == "income") "income" else "expense") }
-                                    if (cat != null) category = cat.name
+                                    val newCats = categories.filter { it.type == (if (t == "income") "income" else "expense") }
+                                    if (category !in newCats.map { it.name }) {
+                                        category = newCats.firstOrNull()?.name ?: "Casa"
+                                    }
                                 }
-                                .testTag("type_${t}_button")
                         ) {
                             Box(
                                 modifier = Modifier.padding(vertical = 8.dp),
@@ -209,8 +261,8 @@ fun TransactionDialog(
                             ) {
                                 Text(
                                     text = label,
+                                    fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.Normal,
                                     fontSize = 12.sp,
-                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                     color = if (selected) color else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
@@ -218,80 +270,59 @@ fun TransactionDialog(
                     }
                 }
 
-                // Launch Format Selector (À Vista, Parcelado, Fixo)
-                if (initialTransaction == null && type != "transfer") {
-                    Text(
-                        text = "FORMATO DO LANÇAMENTO",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                // Mode Tabs (Only for new transactions)
+                if (!isEditing && type != "transfer") {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         listOf(
-                            Triple("single", "À Vista", Icons.Default.AttachMoney),
-                            Triple("installment", "Parcelado", Icons.Default.Layers),
-                            Triple("recurring", "Fixo Mensal", Icons.Default.Repeat)
-                        ).forEach { (m, label, icon) ->
-                            val selected = launchMode == m
-                            OutlinedCard(
-                                onClick = { launchMode = m },
-                                shape = RoundedCornerShape(12.dp),
-                                colors = CardDefaults.outlinedCardColors(
-                                    containerColor = if (selected) {
-                                        if (m == "installment") Indigo500.copy(alpha = 0.12f)
-                                        else if (m == "recurring") Emerald500.copy(alpha = 0.12f)
-                                        else MaterialTheme.colorScheme.primaryContainer
-                                    } else Color.Transparent
-                                ),
-                                border = CardDefaults.outlinedCardBorder().copy(
-                                    brush = Brush.linearGradient(
-                                        listOf(
-                                            if (selected) {
-                                                if (m == "installment") Indigo600
-                                                else if (m == "recurring") Emerald600
-                                                else MaterialTheme.colorScheme.primary
-                                            } else MaterialTheme.colorScheme.outline,
-                                            if (selected) {
-                                                if (m == "installment") Indigo600
-                                                else if (m == "recurring") Emerald600
-                                                else MaterialTheme.colorScheme.primary
-                                            } else MaterialTheme.colorScheme.outline
-                                        )
-                                    )
-                                ),
-                                modifier = Modifier.weight(1f).testTag("mode_${m}_button")
+                            Triple("single", "À Vista", Icons.Default.Payments),
+                            Triple("installment", "Parcelado", Icons.Default.ViewWeek),
+                            Triple("recurring", "Fixo Mensal", Icons.Default.EventRepeat)
+                        ).forEach { (mode, label, icon) ->
+                            val selected = launchMode == mode
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { launchMode = mode }
                             ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(vertical = 10.dp, horizontal = 4.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                Row(
+                                    modifier = Modifier.padding(vertical = 8.dp, horizontal = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
                                 ) {
                                     Icon(
                                         imageVector = icon,
                                         contentDescription = null,
-                                        tint = if (selected) {
-                                            if (m == "installment") Indigo600
-                                            else if (m == "recurring") Emerald600
-                                            else MaterialTheme.colorScheme.primary
-                                        } else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(18.dp)
+                                        tint = if (selected) Emerald600 else Slate500,
+                                        modifier = Modifier.size(14.dp)
                                     )
+                                    Spacer(modifier = Modifier.width(4.dp))
                                     Text(
                                         text = label,
                                         fontSize = 11.sp,
-                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.onSurface
+                                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                                        color = if (selected) Emerald700 else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                             }
                         }
                     }
                 }
+
+                // Description Field
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Descrição", fontSize = 11.sp) },
+                    placeholder = { Text("Ex: Supermercado, Salário, Carro...", fontSize = 12.sp) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().testTag("transaction_description_input")
+                )
 
                 // Amount & Date
                 Row(
@@ -303,8 +334,8 @@ fun TransactionDialog(
                         onValueChange = { amountText = it },
                         label = {
                             Text(
-                                if (launchMode == "installment") {
-                                    if (installmentMode == "per_installment") "Valor da Parcela (R$)" else "Valor Total (R$)"
+                                if (!isEditing && launchMode == "installment") {
+                                    if (installmentMode == "per_installment") "Valor Parcela (R$)" else "Valor Total (R$)"
                                 } else "Valor (R$)",
                                 fontSize = 11.sp
                             )
@@ -317,17 +348,30 @@ fun TransactionDialog(
                     )
 
                     OutlinedTextField(
-                        value = date,
-                        onValueChange = { date = it },
-                        label = { Text("Data (AAAA-MM-DD)", fontSize = 11.sp) },
+                        value = date.toFormattedDate(),
+                        onValueChange = {},
+                        readOnly = true,
+                        label = { Text("Data", fontSize = 11.sp) },
+                        trailingIcon = {
+                            IconButton(onClick = { showDatePicker = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.CalendarMonth,
+                                    contentDescription = "Selecionar data no calendário",
+                                    tint = Emerald600
+                                )
+                            }
+                        },
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.weight(1f).testTag("transaction_date_input")
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { showDatePicker = true }
+                            .testTag("transaction_date_input")
                     )
                 }
 
-                // INSTALLMENT CONFIGURATION CARD
-                if (launchMode == "installment" && type != "transfer") {
+                // INSTALLMENT CONFIGURATION CARD (Simple Clickable Toggles & Smooth Text Inputs)
+                if (!isEditing && launchMode == "installment" && type != "transfer") {
                     Surface(
                         color = Indigo500.copy(alpha = 0.08f),
                         shape = RoundedCornerShape(14.dp),
@@ -338,7 +382,7 @@ fun TransactionDialog(
                     ) {
                         Column(
                             modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -351,20 +395,23 @@ fun TransactionDialog(
                                     fontSize = 12.sp,
                                     color = Indigo700
                                 )
+
+                                // Clickable toggle between "Por Parcela" and "Total"
                                 Row(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
+                                        .clip(RoundedCornerShape(8.dp))
                                         .background(Color.White)
-                                        .padding(2.dp)
+                                        .padding(2.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
                                 ) {
-                                    listOf("per_installment" to "Por Parcela", "total" to "Total").forEach { (m, lbl) ->
+                                    listOf("per_installment" to "Por Parcela", "total" to "Valor Total").forEach { (m, lbl) ->
                                         val sel = installmentMode == m
                                         Box(
                                             modifier = Modifier
-                                                .clip(RoundedCornerShape(4.dp))
+                                                .clip(RoundedCornerShape(6.dp))
                                                 .background(if (sel) Indigo600 else Color.Transparent)
                                                 .clickable { installmentMode = m }
-                                                .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                .padding(horizontal = 8.dp, vertical = 4.dp)
                                         ) {
                                             Text(
                                                 text = lbl,
@@ -382,8 +429,8 @@ fun TransactionDialog(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 OutlinedTextField(
-                                    value = totalInstallments.toString(),
-                                    onValueChange = { totalInstallments = it.toIntOrNull() ?: 2 },
+                                    value = totalInstallmentsText,
+                                    onValueChange = { totalInstallmentsText = it },
                                     label = { Text("Qtd Parcelas", fontSize = 10.sp) },
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                     singleLine = true,
@@ -391,8 +438,8 @@ fun TransactionDialog(
                                     modifier = Modifier.weight(1f)
                                 )
                                 OutlinedTextField(
-                                    value = startInstallment.toString(),
-                                    onValueChange = { startInstallment = it.toIntOrNull() ?: 1 },
+                                    value = startInstallmentText,
+                                    onValueChange = { startInstallmentText = it },
                                     label = { Text("Parcela Atual", fontSize = 10.sp) },
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                                     singleLine = true,
@@ -401,18 +448,18 @@ fun TransactionDialog(
                                 )
                             }
 
-                            // Quick chips
+                            // Quick installment count chips
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 listOf(2, 3, 6, 10, 12, 24, 36, 60).forEach { n ->
-                                    val sel = totalInstallments == n
+                                    val sel = totalInstallmentsText == n.toString()
                                     Box(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(6.dp))
                                             .background(if (sel) Indigo600 else Color.White)
-                                            .clickable { totalInstallments = n }
+                                            .clickable { totalInstallmentsText = n.toString() }
                                             .padding(horizontal = 6.dp, vertical = 3.dp)
                                     ) {
                                         Text(
@@ -426,7 +473,7 @@ fun TransactionDialog(
                             }
 
                             Text(
-                                text = "Resumo: $remainingInstallments parcelas de R$ ${String.format(Locale.US, "%.2f", perInstallment)} (Total: R$ ${String.format(Locale.US, "%.2f", totalAmountCalc)})",
+                                text = "Resumo: $remainingInstallments parcelas de ${perInstallment.toCurrency()} (Total: ${totalAmountCalc.toCurrency()})",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Indigo700
@@ -436,7 +483,7 @@ fun TransactionDialog(
                 }
 
                 // RECURRING CONFIGURATION CARD
-                if (launchMode == "recurring" && type != "transfer") {
+                if (!isEditing && launchMode == "recurring" && type != "transfer") {
                     Surface(
                         color = Emerald500.copy(alpha = 0.08f),
                         shape = RoundedCornerShape(14.dp),
@@ -450,63 +497,54 @@ fun TransactionDialog(
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Text(
-                                text = "Frequência de Replicação Fixo",
+                                text = "Recorrência Mensal Automática",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 12.sp,
                                 color = Emerald700
                             )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                listOf(
-                                    "end_of_year" to "Até Fim do Ano",
-                                    "full_year" to "Ano Todo (12m)",
-                                    "custom" to "Personalizado"
-                                ).forEach { (sc, lbl) ->
-                                    val sel = recurrenceScope == sc
-                                    Box(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(if (sel) Emerald600 else Color.White)
-                                            .clickable { recurrenceScope = sc }
-                                            .padding(vertical = 6.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = lbl,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            color = if (sel) Color.White else Slate700
-                                        )
-                                    }
+
+                            listOf(
+                                "end_of_year" to "Até o final de 2026 (Recomendado)",
+                                "full_year" to "Próximos 12 meses",
+                                "custom" to "Personalizado (Meses)"
+                            ).forEach { (s, lbl) ->
+                                val sel = recurrenceScope == s
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { recurrenceScope = s }
+                                        .padding(vertical = 2.dp)
+                                ) {
+                                    RadioButton(
+                                        selected = sel,
+                                        onClick = { recurrenceScope = s },
+                                        colors = RadioButtonDefaults.colors(selectedColor = Emerald600)
+                                    )
+                                    Text(lbl, fontSize = 11.sp, fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal)
                                 }
                             }
-                            Text(
-                                text = "Será criado um lançamento fixo de R$ ${String.format(Locale.US, "%.2f", parsedAmount)} nos meses selecionados.",
-                                fontSize = 11.sp,
-                                color = Emerald700
-                            )
+
+                            if (recurrenceScope == "custom") {
+                                OutlinedTextField(
+                                    value = customMonths.toString(),
+                                    onValueChange = { customMonths = it.toIntOrNull() ?: 12 },
+                                    label = { Text("Quantidade de Meses", fontSize = 10.sp) },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
                         }
                     }
                 }
 
-                // Description
-                OutlinedTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    label = { Text("Descrição", fontSize = 11.sp) },
-                    placeholder = { Text("Ex: Supermercado, Salário, TV Samsung...", fontSize = 12.sp) },
-                    singleLine = true,
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier.fillMaxWidth().testTag("transaction_description_input")
-                )
-
-                // Category (if not transfer)
+                // Category Selector (Not needed for Transfer)
                 if (type != "transfer") {
                     var showCatDropdown by remember { mutableStateOf(false) }
-                    Box {
+                    Box(modifier = Modifier.fillMaxWidth()) {
                         OutlinedTextField(
                             value = category,
                             onValueChange = {},
@@ -529,7 +567,16 @@ fun TransactionDialog(
                         ) {
                             filteredCategories.forEach { cat ->
                                 DropdownMenuItem(
-                                    text = { Text(cat.name) },
+                                    text = {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            val c = try { Color(android.graphics.Color.parseColor(cat.color)) } catch (e: Exception) { Emerald500 }
+                                            Box(modifier = Modifier.size(10.dp).clip(CircleShape).background(c))
+                                            Text(cat.name, fontSize = 13.sp)
+                                        }
+                                    },
                                     onClick = {
                                         category = cat.name
                                         showCatDropdown = false
@@ -540,9 +587,9 @@ fun TransactionDialog(
                     }
                 }
 
-                // Account / Credit Card Selection
+                // Source Account & Target Account (For Transfer)
                 var showAccDropdown by remember { mutableStateOf(false) }
-                Box {
+                Box(modifier = Modifier.fillMaxWidth()) {
                     OutlinedTextField(
                         value = account,
                         onValueChange = {},
@@ -570,7 +617,7 @@ fun TransactionDialog(
                             )
                             creditCards.forEach { card ->
                                 DropdownMenuItem(
-                                    text = { Text("💳 ${card.name} (Fatura: R$ ${String.format(Locale.US, "%.2f", card.currentInvoice)})") },
+                                    text = { Text("💳 ${card.name} (Fatura: ${card.currentInvoice.toCurrency()})") },
                                     onClick = {
                                         account = card.name
                                         showAccDropdown = false
@@ -584,7 +631,7 @@ fun TransactionDialog(
                         )
                         accounts.forEach { acc ->
                             DropdownMenuItem(
-                                text = { Text("🏛️ ${acc.name} (Saldo: R$ ${String.format(Locale.US, "%.2f", acc.balance)})") },
+                                text = { Text("🏛️ ${acc.name} (Saldo: ${acc.balance.toCurrency()})") },
                                 onClick = {
                                     account = acc.name
                                     showAccDropdown = false
@@ -594,52 +641,103 @@ fun TransactionDialog(
                     }
                 }
 
-                // Status & Notes
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    var showStatusDropdown by remember { mutableStateOf(false) }
-                    Box(modifier = Modifier.weight(1f)) {
+                // Target Account (Only for Transfer)
+                if (type == "transfer") {
+                    var showTargetAccDropdown by remember { mutableStateOf(false) }
+                    Box(modifier = Modifier.fillMaxWidth()) {
                         OutlinedTextField(
-                            value = if (status == "completed") "Concluído / Pago" else "Pendente / Agendado",
+                            value = targetAccount,
                             onValueChange = {},
                             readOnly = true,
-                            label = { Text("Status", fontSize = 11.sp) },
+                            label = { Text("Conta de Destino", fontSize = 11.sp) },
                             trailingIcon = {
-                                IconButton(onClick = { showStatusDropdown = true }) {
+                                IconButton(onClick = { showTargetAccDropdown = true }) {
                                     Icon(Icons.Default.ArrowDropDown, contentDescription = null)
                                 }
                             },
                             shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showTargetAccDropdown = true }
                         )
                         DropdownMenu(
-                            expanded = showStatusDropdown,
-                            onDismissRequest = { showStatusDropdown = false }
+                            expanded = showTargetAccDropdown,
+                            onDismissRequest = { showTargetAccDropdown = false }
                         ) {
-                            DropdownMenuItem(
-                                text = { Text("Concluído / Pago") },
-                                onClick = {
-                                    status = "completed"
-                                    showStatusDropdown = false
-                                }
+                            accounts.filter { it.name != account }.forEach { acc ->
+                                DropdownMenuItem(
+                                    text = { Text("🏛️ ${acc.name} (Saldo: ${acc.balance.toCurrency()})") },
+                                    onClick = {
+                                        targetAccount = acc.name
+                                        showTargetAccDropdown = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Status (Simple, well-proportioned clickable toggle button!) and Notes
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Clickable Status Toggle
+                    val isDone = status == "completed"
+                    Surface(
+                        onClick = { status = if (isDone) "pending" else "completed" },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isDone) Emerald50 else Amber500.copy(alpha = 0.15f),
+                        border = CardDefaults.outlinedCardBorder().copy(
+                            brush = Brush.linearGradient(
+                                listOf(
+                                    if (isDone) Emerald500.copy(alpha = 0.5f) else Amber500.copy(alpha = 0.5f),
+                                    if (isDone) Emerald500.copy(alpha = 0.5f) else Amber500.copy(alpha = 0.5f)
+                                )
                             )
-                            DropdownMenuItem(
-                                text = { Text("Pendente / Agendado") },
-                                onClick = {
-                                    status = "pending"
-                                    showStatusDropdown = false
-                                }
+                        ),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(56.dp)
+                            .testTag("status_clickable_toggle")
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = if (isDone) Icons.Default.CheckCircle else Icons.Default.Schedule,
+                                contentDescription = null,
+                                tint = if (isDone) Emerald700 else Amber700,
+                                modifier = Modifier.size(18.dp)
                             )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Column {
+                                Text(
+                                    text = "Status (Clique)",
+                                    fontSize = 9.sp,
+                                    color = if (isDone) Emerald700.copy(alpha = 0.8f) else Amber700.copy(alpha = 0.8f)
+                                )
+                                Text(
+                                    text = if (isDone) "Concluído" else "Pendente",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isDone) Emerald700 else Amber700
+                                )
+                            }
                         }
                     }
 
+                    // Notes
                     OutlinedTextField(
                         value = notes,
                         onValueChange = { notes = it },
                         label = { Text("Observações", fontSize = 11.sp) },
-                        placeholder = { Text("Opcional", fontSize = 12.sp) },
+                        placeholder = { Text("Opcional", fontSize = 11.sp) },
                         singleLine = true,
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1.2f)
@@ -670,7 +768,28 @@ fun TransactionDialog(
                                 return@Button
                             }
 
-                            if (launchMode == "installment" && type != "transfer") {
+                            // If editing an existing transaction: ALWAYS update the single transaction directly!
+                            if (isEditing) {
+                                val tx = TransactionEntity(
+                                    id = initialTransaction!!.id,
+                                    date = date,
+                                    description = description.trim(),
+                                    amount = parsedAmount,
+                                    type = type,
+                                    category = if (type == "transfer") "Transferência" else category,
+                                    account = account,
+                                    targetAccount = if (type == "transfer") targetAccount else null,
+                                    status = status,
+                                    notes = notes.trim().ifEmpty { null },
+                                    isInstallment = initialTransaction.isInstallment,
+                                    installmentGroupId = initialTransaction.installmentGroupId,
+                                    installmentCurrent = initialTransaction.installmentCurrent,
+                                    installmentTotal = initialTransaction.installmentTotal,
+                                    isRecurring = initialTransaction.isRecurring,
+                                    recurrenceGroupId = initialTransaction.recurrenceGroupId
+                                )
+                                onSaveSingle(tx)
+                            } else if (launchMode == "installment" && type != "transfer") {
                                 onSaveInstallment(
                                     description,
                                     perInstallment,
@@ -683,7 +802,7 @@ fun TransactionDialog(
                                     status,
                                     notes
                                 )
-                            } else if (launchMode == "recurring") {
+                            } else if (launchMode == "recurring" && type != "transfer") {
                                 onSaveRecurring(
                                     description,
                                     parsedAmount,
@@ -699,7 +818,7 @@ fun TransactionDialog(
                                 )
                             } else {
                                 val tx = TransactionEntity(
-                                    id = initialTransaction?.id ?: UUID.randomUUID().toString(),
+                                    id = UUID.randomUUID().toString(),
                                     date = date,
                                     description = description.trim(),
                                     amount = parsedAmount,
@@ -709,12 +828,12 @@ fun TransactionDialog(
                                     targetAccount = if (type == "transfer") targetAccount else null,
                                     status = status,
                                     notes = notes.trim().ifEmpty { null },
-                                    isInstallment = initialTransaction?.isInstallment ?: false,
-                                    installmentGroupId = initialTransaction?.installmentGroupId,
-                                    installmentCurrent = initialTransaction?.installmentCurrent,
-                                    installmentTotal = initialTransaction?.installmentTotal,
-                                    isRecurring = initialTransaction?.isRecurring ?: false,
-                                    recurrenceGroupId = initialTransaction?.recurrenceGroupId
+                                    isInstallment = false,
+                                    installmentGroupId = null,
+                                    installmentCurrent = null,
+                                    installmentTotal = null,
+                                    isRecurring = false,
+                                    recurrenceGroupId = null
                                 )
                                 onSaveSingle(tx)
                             }
@@ -724,7 +843,7 @@ fun TransactionDialog(
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.testTag("save_transaction_button")
                     ) {
-                        Text(if (initialTransaction != null) "Salvar Alterações" else "Criar Lançamento", fontWeight = FontWeight.Bold)
+                        Text(if (isEditing) "Salvar Alterações" else "Criar Lançamento", fontWeight = FontWeight.Bold)
                     }
                 }
             }

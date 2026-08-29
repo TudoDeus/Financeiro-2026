@@ -54,20 +54,54 @@ private val LightColorScheme = lightColorScheme(
     onError = Color.White
 )
 
+enum class AppThemeMode(val title: String) {
+    CLASSIC("Clássico"),
+    SEPIA("Sépia"),
+    DARK("Dark")
+}
+
+private val SepiaColorScheme = lightColorScheme(
+    primary = SepiaPrimary,
+    onPrimary = Color.White,
+    primaryContainer = SepiaPrimaryContainer,
+    onPrimaryContainer = SepiaOnPrimaryContainer,
+    secondary = SepiaSecondary,
+    onSecondary = Color.White,
+    secondaryContainer = SepiaSecondaryContainer,
+    onSecondaryContainer = SepiaOnBackground,
+    tertiary = SepiaTertiary,
+    background = SepiaBackground,
+    onBackground = SepiaOnBackground,
+    surface = SepiaSurface,
+    onSurface = SepiaOnSurface,
+    surfaceVariant = SepiaSurfaceVariant,
+    onSurfaceVariant = SepiaOnSurfaceVariant,
+    outline = SepiaOutline,
+    error = Rose600,
+    onError = Color.White
+)
+
 @Composable
 fun ControleFinanceiroTheme(
+    themeMode: AppThemeMode = AppThemeMode.CLASSIC,
     darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit
 ) {
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val isDark = themeMode == AppThemeMode.DARK || (themeMode == AppThemeMode.CLASSIC && darkTheme)
+    val colorScheme = when (themeMode) {
+        AppThemeMode.DARK -> DarkColorScheme
+        AppThemeMode.SEPIA -> SepiaColorScheme
+        AppThemeMode.CLASSIC -> if (darkTheme) DarkColorScheme else LightColorScheme
+    }
+
     val view = LocalView.current
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
             window.statusBarColor = Color.Transparent.toArgb()
             window.navigationBarColor = Color.Transparent.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
-            WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars = !darkTheme
+            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !isDark
+            WindowCompat.getInsetsController(window, view).isAppearanceLightNavigationBars = !isDark
         }
     }
 
@@ -77,3 +111,4 @@ fun ControleFinanceiroTheme(
         content = content
     )
 }
+
